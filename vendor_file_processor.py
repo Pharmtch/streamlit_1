@@ -1,17 +1,17 @@
+
 import pandas as pd
 import os
 import glob
 from datetime import datetime
 
-# Define standard schema and field synonyms
 standard_schema = [
     "NDC", "Name", "Form", "Pack Size", "Manufacturer",
-    "Qty", "Purchased Price", "Platform", "Seller", 
+    "Qty", "Purchased Price", "Platform", "Seller",
     "Date of Purchase", "Invoice Number"
 ]
 
 field_synonyms = {
-    "NDC": ["NDC", "Selling Unit NDC", "Inner NDC Nbr", "NDCText", "Item", "NDC Number", "Material Number (Numeric)"],
+    "NDC": ["NDC", "Selling Unit NDC", "Inner NDC Nbr", "UPC", "NDCText", "Item", "NDC Number", "Material Number (Numeric)"],
     "Name": ["Name", "Product Name", "Material Name", "ITEM DESCRIPTION", "DrugName", "Description", "Material Description"],
     "Form": ["Form", "Dosage Form"],
     "Pack Size": ["Pack Size", "PackageSize", "Size", "Size/dimensions"],
@@ -58,20 +58,42 @@ def process_vendor_file(filepath):
         if std_col and mapped[std_col] is None:
             mapped[std_col] = col
 
-    missing_required = [f for f in required_fields if mapped[f] is None]
+    missing_required = [f for f in required_fields if mapped.get(f) is None and f != "NDC"]
 
     standardized = pd.DataFrame({
-        col: df[mapped[col]] if mapped[col] else ""
-        for col in standard_schema
+        col: df[mapped[col]] if mapped.get(col) else ""
+        for col in standard_schema if col != "NDC"
     })
 
+    def resolve_ndc(row):
+        for col in ["Selling Unit NDC", "Inner NDC Nbr", "UPC"]:
+            val = row.get(col)
+            if pd.notna(val) and str(val).strip():
+                return str(val).strip()
+        return ""
+
+    
+    if mapped.get("NDC"):
+        standardized["NDC"] = df[mapped["NDC"]].astype(str).str.strip()
+    else:
+        standardized["NDC"] = df.apply(resolve_ndc, axis=1)
+    
+
+    def format_ndc(ndc):
+        digits = ''.join(filter(str.isdigit, str(ndc)))
+        if len(digits) < 11:
+            digits = digits.zfill(11)
+        if len(digits) == 11:
+            return f"{digits[:5]}-{digits[5:9]}-{digits[9:]}"
+        return "INVALID"
+
+    standardized["NDC"] = standardized["NDC"].apply(format_ndc)
     standardized["Platform"] = platform
     standardized["Qty"] = pd.to_numeric(standardized["Qty"], errors="coerce").fillna(0).round().astype(int)
     standardized["Purchased Price"] = pd.to_numeric(
         standardized["Purchased Price"].astype(str).str.replace(r"[\$,]", "", regex=True).str.strip(),
         errors="coerce"
     ).where(lambda x: x.notna(), "N/A")
-
     standardized["Date of Purchase"] = pd.to_datetime(standardized["Date of Purchase"], errors="coerce").dt.date
     standardized["Invoice Number"] = standardized["Invoice Number"].astype(str).str.replace(r"\.0$", "", regex=True)
 
