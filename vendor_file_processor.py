@@ -1,10 +1,9 @@
-
 import pandas as pd
 import os
 import glob
 from datetime import datetime
 
-# Define updated standard schema and synonyms
+# Define standard schema and field synonyms
 standard_schema = [
     "NDC", "Name", "Form", "Pack Size", "Manufacturer",
     "Qty", "Purchased Price", "Platform", "Seller", 
@@ -12,7 +11,7 @@ standard_schema = [
 ]
 
 field_synonyms = {
-    "NDC": ["NDC", "Selling Unit NDC", "Inner NDC Nbr", "UPC", "NDCText", "Item", "NDC Number", "Material Number (Numeric)"],
+    "NDC": ["NDC", "Selling Unit NDC", "Inner NDC Nbr", "NDCText", "Item", "NDC Number", "Material Number (Numeric)"],
     "Name": ["Name", "Product Name", "Material Name", "ITEM DESCRIPTION", "DrugName", "Description", "Material Description"],
     "Form": ["Form", "Dosage Form"],
     "Pack Size": ["Pack Size", "PackageSize", "Size", "Size/dimensions"],
@@ -59,28 +58,20 @@ def process_vendor_file(filepath):
         if std_col and mapped[std_col] is None:
             mapped[std_col] = col
 
-    missing_required = [f for f in required_fields if mapped[f] is None and f != "NDC"]
+    missing_required = [f for f in required_fields if mapped[f] is None]
 
     standardized = pd.DataFrame({
         col: df[mapped[col]] if mapped[col] else ""
-        for col in standard_schema if col != "NDC"
+        for col in standard_schema
     })
 
-    # Row-level fallback for NDC
-    ndc_fallback_cols = ["Selling Unit NDC", "Inner NDC Nbr", "UPC"]
-    ndc_series = pd.Series([""] * len(df))
-    for col in ndc_fallback_cols:
-        if col in df.columns:
-            ndc_values = df[col].fillna("").astype(str).str.strip()
-            ndc_series = ndc_series.mask(ndc_series == "", ndc_values)
-
-    standardized["NDC"] = ndc_series
     standardized["Platform"] = platform
     standardized["Qty"] = pd.to_numeric(standardized["Qty"], errors="coerce").fillna(0).round().astype(int)
     standardized["Purchased Price"] = pd.to_numeric(
         standardized["Purchased Price"].astype(str).str.replace(r"[\$,]", "", regex=True).str.strip(),
         errors="coerce"
     ).where(lambda x: x.notna(), "N/A")
+
     standardized["Date of Purchase"] = pd.to_datetime(standardized["Date of Purchase"], errors="coerce").dt.date
     standardized["Invoice Number"] = standardized["Invoice Number"].astype(str).str.replace(r"\.0$", "", regex=True)
 
