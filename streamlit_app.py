@@ -10,7 +10,7 @@ from datetime import datetime
 from vendor_file_processor import process_vendor_file, standard_schema
 
 st.set_page_config(page_title="Vendor File Processor", layout="centered")
-st.title("💊 Vendor Purchase History Processor")
+st.title("step2")
 
 st.markdown("""
 Upload multiple vendor files (CSV or Excel) and click **Process** to standardize and combine them into one report. 
