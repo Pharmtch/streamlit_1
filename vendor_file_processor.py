@@ -4,15 +4,15 @@ import os
 import glob
 from datetime import datetime
 
-# Standard schema and field synonyms
-STANDARD_SCHEMA = [
+# Define updated standard schema and synonyms
+standard_schema = [
     "NDC", "Name", "Form", "Pack Size", "Manufacturer",
-    "Qty", "Purchased Price", "Platform", "Seller",
+    "Qty", "Purchased Price", "Platform", "Seller", 
     "Date of Purchase", "Invoice Number"
 ]
 
-FIELD_SYNONYMS = {
-    "NDC": ["NDC", "Selling Unit NDC", "Inner NDC Nbr", "NDCText", "Item", "NDC Number", "Material Number (Numeric)"],
+field_synonyms = {
+    "NDC": ["NDC", "Selling Unit NDC", "Inner NDC Nbr", "UPC", "NDCText", "Item", "NDC Number", "Material Number (Numeric)"],
     "Name": ["Name", "Product Name", "Material Name", "ITEM DESCRIPTION", "DrugName", "Description", "Material Description"],
     "Form": ["Form", "Dosage Form"],
     "Pack Size": ["Pack Size", "PackageSize", "Size", "Size/dimensions"],
@@ -24,31 +24,26 @@ FIELD_SYNONYMS = {
     "Invoice Number": ["Invoice Number", "Invoice", "Invc Nbr", "Order #", "Order Id", "INV/CRDT#", "Invoice No.", "Billing Document"]
 }
 
-REQUIRED_FIELDS = {"NDC", "Name", "Qty", "Date of Purchase"}
+required_fields = ["NDC", "Name", "Qty", "Date of Purchase"]
 
-SYNONYM_TO_STANDARD = {syn: std for std, synonyms in FIELD_SYNONYMS.items() for syn in synonyms}
+synonym_to_standard = {
+    synonym: std_col
+    for std_col, synonyms in field_synonyms.items()
+    for synonym in synonyms
+}
 
-FILE_READERS = {
+file_readers = {
     ".csv": pd.read_csv,
     ".xlsx": pd.read_excel,
     ".xls": pd.read_excel
 }
 
-def detect_platform(filename):
-    base = os.path.basename(filename).lower()
-    return "kinray" if base == "kinray.csv" else base.split()[0]
-
-def map_columns(columns):
-    return {
-        std: next((col for col in columns if SYNONYM_TO_STANDARD.get(col.strip()) == std), None)
-        for std in STANDARD_SCHEMA
-    }
-
 def process_vendor_file(filepath):
     ext = os.path.splitext(filepath)[1].lower()
     filename = os.path.basename(filepath)
-    reader = FILE_READERS.get(ext)
+    platform = "kinray" if filename.lower() == "kinray.csv" else filename.split()[0].lower()
 
+    reader = file_readers.get(ext)
     if not reader:
         return None, f"❌ Unsupported file format: {filepath}", {}
 
@@ -58,59 +53,36 @@ def process_vendor_file(filepath):
         return None, f"❌ Error reading {filepath}: {e}", {}
 
     df.columns = df.columns.str.strip()
-    mapped = map_columns(df.columns)
-    missing = [col for col in REQUIRED_FIELDS if not mapped.get(col)]
+    mapped = {col: None for col in standard_schema}
+    for col in df.columns:
+        std_col = synonym_to_standard.get(col.strip())
+        if std_col and mapped[std_col] is None:
+            mapped[std_col] = col
 
-    standardized = pd.DataFrame({col: df.get(mapped[col], "") for col in STANDARD_SCHEMA})
+    missing_required = [f for f in required_fields if mapped[f] is None and f != "NDC"]
 
-    # Data Transformations
-    standardized["Platform"] = detect_platform(filename)
+    standardized = pd.DataFrame({
+        col: df[mapped[col]] if mapped[col] else ""
+        for col in standard_schema if col != "NDC"
+    })
+
+    # Row-level fallback for NDC
+    ndc_fallback_cols = ["Selling Unit NDC", "Inner NDC Nbr", "UPC"]
+    ndc_series = pd.Series([""] * len(df))
+    for col in ndc_fallback_cols:
+        if col in df.columns:
+            ndc_values = df[col].fillna("").astype(str).str.strip()
+            ndc_series = ndc_series.mask(ndc_series == "", ndc_values)
+
+    standardized["NDC"] = ndc_series
+    standardized["Platform"] = platform
     standardized["Qty"] = pd.to_numeric(standardized["Qty"], errors="coerce").fillna(0).round().astype(int)
-
-    standardized["Purchased Price"] = (
-        standardized["Purchased Price"].astype(str)
-        .str.replace(r"[\$,]", "", regex=True).str.strip()
-    )
     standardized["Purchased Price"] = pd.to_numeric(
-        standardized["Purchased Price"], errors="coerce"
-    ).fillna("N/A")
-
-    standardized["Date of Purchase"] = pd.to_datetime(
-        standardized["Date of Purchase"], errors="coerce"
-    ).dt.date
-
+        standardized["Purchased Price"].astype(str).str.replace(r"[\$,]", "", regex=True).str.strip(),
+        errors="coerce"
+    ).where(lambda x: x.notna(), "N/A")
+    standardized["Date of Purchase"] = pd.to_datetime(standardized["Date of Purchase"], errors="coerce").dt.date
     standardized["Invoice Number"] = standardized["Invoice Number"].astype(str).str.replace(r"\.0$", "", regex=True)
 
-    log_msg = f"✅ Processed: {filename} | Missing: {', '.join(missing) if missing else 'None'}"
+    log_msg = f"✅ Processed: {filename} | Missing: {', '.join(missing_required) if missing_required else 'None'}"
     return standardized, log_msg, mapped
-
-def process_all_vendor_files_with_mapping(folder_path=".", output_file="combined_standardized_output.csv"):
-    logs, mappings, all_data = [], [], []
-    extensions = [".csv", ".xlsx", ".xls"]
-    files = [f for ext in extensions for f in glob.glob(os.path.join(folder_path, f"*{ext}"))]
-
-    for file in files:
-        df, log, mapping = process_vendor_file(file)
-        logs.append(log)
-        if mapping:
-            mappings.append({"File": os.path.basename(file), **mapping})
-        if df is not None:
-            all_data.append(df)
-
-    if all_data:
-        combined = pd.concat(all_data, ignore_index=True)
-        combined.to_csv(output_file, index=False)
-        print(f"✅ Output saved to {output_file}")
-    else:
-        print("❌ No valid data found.")
-
-    log_path = os.path.join(folder_path, "processing_log.txt")
-    with open(log_path, "w") as f:
-        f.write("\n".join(logs))
-
-    pd.DataFrame(mappings).to_csv(os.path.join(folder_path, "column_mapping_log.csv"), index=False)
-    print(f"📝 Log saved to {log_path}")
-    print(f"📄 Mapping log saved to column_mapping_log.csv")
-
-if __name__ == "__main__":
-    process_all_vendor_files_with_mapping("your_folder_path_here")
