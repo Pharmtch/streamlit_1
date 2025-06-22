@@ -60,22 +60,7 @@ def process_vendor_file(filepath):
         return None, f"❌ Error reading {filepath}: {e}", {}
 
     df.columns = df.columns.str.strip()
-    import re
-
     mapped = {col: None for col in standard_schema}
-
-    # Try direct matching using synonyms
-    for col in df.columns:
-        std_col = synonym_to_standard.get(col.strip())
-        if std_col and mapped[std_col] is None:
-            mapped[std_col] = col
-
-    # If 'Date of Purchase' is still missing, use regex to try to find a matching column
-    if mapped["Date of Purchase"] is None:
-        for col in df.columns:
-            if re.search(r"(bill|inv|order).*date", col.strip(), re.IGNORECASE):
-                mapped["Date of Purchase"] = col
-                break
     for col in df.columns:
         std_col = synonym_to_standard.get(col.strip())
         if std_col and mapped[std_col] is None:
