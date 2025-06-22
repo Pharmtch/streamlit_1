@@ -1,9 +1,9 @@
+
 import pandas as pd
 import os
 import glob
 from datetime import datetime
 
-# Define standard schema and field synonyms
 standard_schema = [
     "NDC", "Name", "Form", "Pack Size", "Manufacturer",
     "Qty", "Purchased Price", "Platform", "Seller", 
@@ -37,6 +37,14 @@ file_readers = {
     ".xls": pd.read_excel
 }
 
+def format_ndc(ndc):
+    digits = ''.join(filter(str.isdigit, str(ndc)))
+    if len(digits) < 11:
+        digits = digits.zfill(11)
+    if len(digits) == 11:
+        return f"{digits[:5]}-{digits[5:9]}-{digits[9:]}"
+    return "INVALID"
+
 def process_vendor_file(filepath):
     ext = os.path.splitext(filepath)[1].lower()
     filename = os.path.basename(filepath)
@@ -65,6 +73,18 @@ def process_vendor_file(filepath):
         for col in standard_schema
     })
 
+    if mapped.get("NDC"):
+        standardized["NDC"] = df[mapped["NDC"]].astype(str).str.strip()
+    else:
+        def resolve_ndc(row):
+            for col in ["Selling Unit NDC", "Inner NDC Nbr", "UPC"]:
+                val = row.get(col)
+                if pd.notna(val) and str(val).strip():
+                    return str(val).strip()
+            return ""
+        standardized["NDC"] = df.apply(resolve_ndc, axis=1)
+
+    standardized["NDC"] = standardized["NDC"].apply(format_ndc)
     standardized["Platform"] = platform
     standardized["Qty"] = pd.to_numeric(standardized["Qty"], errors="coerce").fillna(0).round().astype(int)
     standardized["Purchased Price"] = pd.to_numeric(
