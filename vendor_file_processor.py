@@ -67,9 +67,10 @@ def process_vendor_file(filepath):
 
     def resolve_ndc(row):
         for col in ["Selling Unit NDC", "Inner NDC Nbr", "UPC"]:
-            val = row.get(col)
-            if pd.notna(val) and str(val).strip():
-                return str(val).strip()
+            if col in df.columns:
+                value = str(row.get(col, "")).strip()
+                if value and value.lower() != "nan":
+                    return value
         return ""
 
     
