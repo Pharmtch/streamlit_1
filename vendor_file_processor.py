@@ -11,7 +11,7 @@ standard_schema = [
 ]
 
 field_synonyms = {
-    "NDC": ["NDC", "Selling Unit NDC", "Inner NDC Nbr", "NDCText", "Item", "NDC Number", "Material Number (Numeric)"],
+    "NDC": ["NDC Number", "NDC", "Selling Unit NDC", "Inner NDC Nbr", "UPC", "NDCText", "Item", "Material Number (Numeric)"],
     "Name": ["Name", "Product Name", "Material Name", "ITEM DESCRIPTION", "DrugName", "Description", "Material Description"],
     "Form": ["Form", "Dosage Form"],
     "Pack Size": ["Pack Size", "PackageSize", "Size", "Size/dimensions"],
