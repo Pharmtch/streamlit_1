@@ -60,24 +60,7 @@ def process_vendor_file(filepath):
         return None, f"❌ Error reading {filepath}: {e}", {}
 
     df.columns = df.columns.str.strip()
-    import re
-
-mapped = {col: None for col in standard_schema}
-
-# Try direct synonym match
-for col in df.columns:
-    std_col = synonym_to_standard.get(col.strip())
-    if std_col and mapped[std_col] is None:
-        mapped[std_col] = col
-
-# Regex fallback for unmapped columns
-for std_col, pattern in intelligent_column_patterns.items():
-    if mapped[std_col] is None:
-        for col in df.columns:
-            if re.search(pattern, col.strip(), re.IGNORECASE):
-                mapped[std_col] = col
-                break
-
+    mapped = {col: None for col in standard_schema}
     for col in df.columns:
         std_col = synonym_to_standard.get(col.strip())
         if std_col and mapped[std_col] is None:
